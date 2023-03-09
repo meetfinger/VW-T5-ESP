@@ -1,6 +1,6 @@
 # VW-T5-ESP
 <h2> smart up the VW T5.1 MJ 2009</h2>
-<h2> Disclaimer: compiled, but not testet yet</h2>
+<h2> Disclaimer: WIP - compiled, but not testet yet</h2>
 
 To read the current outside temperature from my car i tapped the CAN Bus. While there, i read some other stuff and added GPS. I used ESPHome because i currently use it a lot. 
 
