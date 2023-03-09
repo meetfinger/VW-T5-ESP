@@ -1,0 +1,201 @@
+esphome:
+  name: vwt5esp
+  platform: ESP32
+  board: esp32dev
+
+# Enable logging
+logger:
+  baud_rate: 0
+  
+# Enable Home Assistant API
+api:
+  password: ""
+  services:  
+#  - service: send_sms #SMS relevant stuff
+#    variables:
+#      recipient: string
+#      message: string
+#    then:
+#    - sim800l.send_sms:
+#        recipient: !lambda 'return recipient;'
+#        message: !lambda 'return message;'
+
+ota:
+  password: ""
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+ # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: !secret fallback_ssid
+    password: !secret fallback_password
+
+captive_portal:
+
+#Sensors
+text_sensor: #SMS relevant stuff
+- platform: template
+  id: sms_sender
+  name: "Sms Sender"
+- platform: template
+  id: sms_message
+  name: "Sms Message"
+
+sensor:
+  - platform: dht #Temperature
+    pin: 0
+    id: tempinsicn
+    temperature:
+      name: "Temperatur innen"
+    humidity:
+      name: "Feuchtigkeit innen"
+    update_interval: 3600s
+    model: DHT22
+  - platform: sim800l # Signal strenght of GPRS
+    rssi:
+      name: "Sim800L RSSI"
+
+binary_sensor:
+  - platform: sim800l # Is the SIM active?
+    registered:
+      name: "Sim800L Registered"
+      
+switch:
+  - platform: gpio
+    id: smsreceived
+    pin: 4
+    name: "SMS empfangen"
+    on_turn_on:
+      - delay: 1500ms
+      - switch.turn_off: smsreceived
+
+globals:
+   - id: tempoutside
+     type: float
+     restore_value: yes
+     initial_value: '0'
+   - id: timehours
+     type: int
+     restore_value: yes
+     initial_value: '0'
+   - id: timeminutes
+     type: int
+     restore_value: yes
+     initial_value: '0'
+   - id: timevalue
+     type: int
+     restore_value: yes
+     initial_value: '0'
+   - id: batteryvolt
+     type: float
+     restore_value: yes
+     initial_value: '0'
+   - id: heatertemp
+     type: float
+     restore_value: yes
+     initial_value: '0'
+
+# init Pins
+uart:
+  - id: uart_sim
+    tx_pin: 26
+    rx_pin: 27
+    baud_rate: 9600
+  - id: uart_gps
+    rx_pin: 3
+    baud_rate: 9600
+
+spi:
+  clk_pin: 18
+  mosi_pin: 23
+  miso_pin: 19
+
+#GPS Part
+gps:
+  uart_id: uart_gps
+  latitude:
+    name: "Latitude"
+  longitude:
+    name: "Longitude"
+  altitude:
+    name: "Altitude"
+
+time: # GPS as time source
+  - platform: gps
+
+sim800l:
+  uart_id: uart_sim
+  on_sms_received:
+    then:
+     - if: 
+        condition: 
+          lambda: 'return id(sms_sender).state == "+01631737743";'
+        then:
+          switch.turn_on: smsreceived
+
+#CAN Bus Part
+# *  + CAN Module MCP2515
+# *    + Temeprature outside 
+# *    + ID 0x623, Time
+# *    + ID 0x571, Battery Voltage
+# *    + ID 0x3E5, Auxilary Heater
+# *    + ID 0x351, Velocity and outside Temperature 
+# *    + ID 0x371, Doors, Indicator
+
+canbus:
+  - platform: mcp2515
+    cs_pin: 15
+    can_id: 2
+    bit_rate: 100kbps
+    on_frame:
+      - can_id: 0x623 # Time: timeval = (canbuf[1]>>4)*1000 + (canbuf[1]&0x0F)*100 + (canbuf[2]>>4)*10 + (canbuf[2]&0x0F); https://tx-board.de/threads/id-0x623-uhrzeit.21334/#post-380762
+        then:
+          - lambda: |-
+              std::string b(x.begin(), x.end());
+              int timehours = int(x[1]);
+              int timeminutes = int(x[3]);
+              int timevalue = (int(x[1])>>4)*1000 + (int(x[1])&0x0F)*100 + (int(x[2])>>4)*10 + (int(x[2])&0x0F);
+              ESP_LOGD("Time canid 0x623",  "%d %d %d", timehours, timeminutes, timevalue);
+      - can_id: 0x351 #outside Temperature, Byte 6, converted hex to decimal /2 - 50 https://tx-board.de/threads/t5-tp-1-6-id-0x351-geschwindigkeit-getriebe-und-aussentemperatur.21306/#post-756485
+        then:
+          - lambda: |-
+              std::string t(x.begin(), x.end());
+              float tempoutside = int(x[6]) / 2 - 50;
+              ESP_LOGD("Temperature Outside canid 0x351", "%f", tempoutside);
+      - can_id: 0x571 # Battery Voltage =(Byte1 / 2 + 50) / 10 https://tx-board.de/threads/t5-tp-1-6-id-0x571-batteriespannung.21317/#post-434778
+        then:
+          - lambda: |-
+              std::string b(x.begin(), x.end());
+              float batteryvolt = (int(x[1]) / 2 + 50) / 10; 
+              ESP_LOGD("Batteryvoltage canid 0x571", "%f", batteryvolt);
+      - can_id: 0x3E5 # HeaterTemp https://tx-board.de/threads/frame-fuer-standheizung.36723/#post-746354
+        then:
+          - lambda: |-
+              std::string b(x.begin(), x.end());
+              float heatertemp = int(x[6]) * 0.75 - 48; 
+              ESP_LOGD("Heatertemperature canid 0x571", "%f", heatertemp);
+
+
+# Display Part
+font:
+  # gfonts://family[@weight]
+  - file: "gfonts://Roboto"
+    id: roboto
+    size: 20
+
+display:
+  - platform: waveshare_epaper
+    cs_pin: 5
+    dc_pin: 17
+    busy_pin: 4
+    reset_pin: 16
+    model: 2.13in
+    full_update_every: 30
+    lambda: |-
+      it.print(0, 0, id(roboto), "Hello World!");
+      it.printf(0, 0, id(roboto), "Time: %d : %d", id(timehours), id(timeminutes));  
+      it.printf(0, 0, id(roboto), "Time: %d ", id(timevalue));        
+      it.printf(0, 0, id(roboto), "Temperature outside: %.1f °C", id(tempoutside));
+      it.printf(0, 0, id(roboto), "Temperature inside:  %.1f °C", id(tempoutside));
+      
