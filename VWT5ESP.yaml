@@ -1,201 +1,238 @@
 esphome:
   name: vwt5esp
-  platform: ESP32
+
+esp32:
   board: esp32dev
 
-# Enable logging
 logger:
   baud_rate: 0
-  
-# Enable Home Assistant API
-api:
-  password: ""
-  services:  
-#  - service: send_sms #SMS relevant stuff
-#    variables:
-#      recipient: string
-#      message: string
-#    then:
-#    - sim800l.send_sms:
-#        recipient: !lambda 'return recipient;'
-#        message: !lambda 'return message;'
-
-ota:
-  password: ""
+  level: VERBOSE
+  logs:
+    gps: none
+    sim800l: none
+    wifi: none
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
- # Enable fallback hotspot (captive portal) in case wifi connection fails
-  ap:
-    ssid: !secret fallback_ssid
-    password: !secret fallback_password
+  ssid: !secret ssid
+  password: !secret 
+  manual_ip:
+    static_ip: 192.168.xxx.xxx
+    gateway: 192.168.xxx.xxx
+    subnet: 255.255.255.0
+  power_save_mode: HIGH
+  fast_connect: on
+  output_power: "8.5dB"
 
+ota:
 captive_portal:
+api:
+  services:
+  - service: send_sms
+    variables:
+      recipient: string
+      message: string
+    then:
+    - sim800l.send_sms:
+        recipient: !lambda 'return recipient;'
+        message: !lambda 'return message;'
 
-#Sensors
-text_sensor: #SMS relevant stuff
+deep_sleep: #powersaving mechanism
+  run_duration: 30s
+  sleep_duration: 5min
+
+
+text_sensor: #necessary text sensors
 - platform: template
   id: sms_sender
   name: "Sms Sender"
 - platform: template
   id: sms_message
   name: "Sms Message"
+- platform: template
+  id: caller_id_text_sensor
+  name: "Caller ID"
+- platform: template
+  id: ussd_message
+  name: "Ussd Code"
+- platform: template
+  id: messagetosend
+  name: "SMS Message zum verschicken"
+      
+
+i2c: #necessary for BME280
+  sda: 21
+  scl: 22
+#  scan: true
 
 sensor:
-  - platform: dht #Temperature
-    pin: 0
-    id: tempinsicn
-    temperature:
-      name: "Temperatur innen"
-    humidity:
-      name: "Feuchtigkeit innen"
-    update_interval: 3600s
-    model: DHT22
   - platform: sim800l # Signal strenght of GPRS
     rssi:
       name: "Sim800L RSSI"
+  - platform: adc # battery voltage 
+    pin: 34
+    id: batteriespannung
+    name: "Batteriespannung"
+    update_interval: 60s
+    unit_of_measurement: "V"
+    attenuation: auto
+    accuracy_decimals: 2
+    filters:
+      - multiply: 5.583
+  - platform: bme280 #outside temp
+    address: 0x76
+    update_interval: 60s
+    temperature:
+      id: tempaussen
+      name: "T5 Aussen Temperatur"
+      oversampling: 1x
+      on_value:
+        then:
+           - component.update: einkdisplay 
+    humidity:
+      id: feuchteaussen
+      name: "T5 Aussen Feuchtigkeit"
+      oversampling: 1x
+  - platform: dht #inside temp
+    pin: 14
+    temperature:
+      name: "T5 Innenraum Temperatur"
+      id: tempinnen
+      on_value:
+        then:
+           - component.update: einkdisplay 
+    humidity:
+      name: "T5 Innenraum Feuchtigkeit"
+      id: feuchteinnen
+    update_interval: 60s
+    model: DHT22_TYPE2  
 
 binary_sensor:
   - platform: sim800l # Is the SIM active?
     registered:
       name: "Sim800L Registered"
-      
-switch:
-  - platform: gpio
-    id: smsreceived
-    pin: 4
-    name: "SMS empfangen"
-    on_turn_on:
-      - delay: 1500ms
-      - switch.turn_off: smsreceived
+  - platform: gpio # is the aux heater on?
+    id: heizungstatus
+    name: "Standheizung"
+    pin:
+      number: 39
 
-globals:
-   - id: tempoutside
-     type: float
-     restore_value: yes
-     initial_value: '0'
-   - id: timehours
-     type: int
-     restore_value: yes
-     initial_value: '0'
-   - id: timeminutes
-     type: int
-     restore_value: yes
-     initial_value: '0'
-   - id: timevalue
-     type: int
-     restore_value: yes
-     initial_value: '0'
-   - id: batteryvolt
-     type: float
-     restore_value: yes
-     initial_value: '0'
-   - id: heatertemp
-     type: float
-     restore_value: yes
-     initial_value: '0'
 
-# init Pins
-uart:
+uart: # necessary UART setup for SIM and GPS
   - id: uart_sim
-    tx_pin: 26
-    rx_pin: 27
     baud_rate: 9600
+    tx_pin: 27
+    rx_pin: 26
   - id: uart_gps
     rx_pin: 3
     baud_rate: 9600
+    
 
-spi:
-  clk_pin: 18
-  mosi_pin: 23
-  miso_pin: 19
-
-#GPS Part
-gps:
-  uart_id: uart_gps
-  latitude:
-    name: "Latitude"
-  longitude:
-    name: "Longitude"
-  altitude:
-    name: "Altitude"
-
-time: # GPS as time source
-  - platform: gps
-
-sim800l:
+sim800l: # receive and send status sms, receive call
   uart_id: uart_sim
   on_sms_received:
     then:
-     - if: 
-        condition: 
-          lambda: 'return id(sms_sender).state == "+01631737743";'
-        then:
-          switch.turn_on: smsreceived
-
-#CAN Bus Part
-# *  + CAN Module MCP2515
-# *    + Temeprature outside 
-# *    + ID 0x623, Time
-# *    + ID 0x571, Battery Voltage
-# *    + ID 0x3E5, Auxilary Heater
-# *    + ID 0x351, Velocity and outside Temperature 
-# *    + ID 0x371, Doors, Indicator
-
-canbus:
-  - platform: mcp2515
-    cs_pin: 15
-    can_id: 2
-    bit_rate: 100kbps
-    on_frame:
-      - can_id: 0x623 # Time: timeval = (canbuf[1]>>4)*1000 + (canbuf[1]&0x0F)*100 + (canbuf[2]>>4)*10 + (canbuf[2]&0x0F); https://tx-board.de/threads/id-0x623-uhrzeit.21334/#post-380762
-        then:
+      - lambda: |-
+         id(sms_sender).publish_state(sender);
+         id(sms_message).publish_state(message);
+         id(messagetosend).publish_state(" ");
+         id(messagetosend).publish_state( "GPS: " + to_string(id(latitude).state) + " " + to_string(id(longitude).state) + " " + to_string(id(batteriespannung).state) + "V - Heizung: " + to_string(id(heizungstatus).state) + " - Innen: " + to_string(id(tempinnen).state) + " - Aussen: " + to_string(id(tempaussen).state));
+      - if:
+         condition:
+           lambda: 'return ((id(sms_sender).state == "+491234567890" || id(sms_sender).state == "+491234567890") && (id(sms_message).state == "Heizung" || id(sms_message).state == "heizung") );'
+         then:
           - lambda: |-
-              std::string b(x.begin(), x.end());
-              int timehours = int(x[1]);
-              int timeminutes = int(x[3]);
-              int timevalue = (int(x[1])>>4)*1000 + (int(x[1])&0x0F)*100 + (int(x[2])>>4)*10 + (int(x[2])&0x0F);
-              ESP_LOGD("Time canid 0x623",  "%d %d %d", timehours, timeminutes, timevalue);
-      - can_id: 0x351 #outside Temperature, Byte 6, converted hex to decimal /2 - 50 https://tx-board.de/threads/t5-tp-1-6-id-0x351-geschwindigkeit-getriebe-und-aussentemperatur.21306/#post-756485
-        then:
-          - lambda: |-
-              std::string t(x.begin(), x.end());
-              float tempoutside = int(x[6]) / 2 - 50;
-              ESP_LOGD("Temperature Outside canid 0x351", "%f", tempoutside);
-      - can_id: 0x571 # Battery Voltage =(Byte1 / 2 + 50) / 10 https://tx-board.de/threads/t5-tp-1-6-id-0x571-batteriespannung.21317/#post-434778
-        then:
-          - lambda: |-
-              std::string b(x.begin(), x.end());
-              float batteryvolt = (int(x[1]) / 2 + 50) / 10; 
-              ESP_LOGD("Batteryvoltage canid 0x571", "%f", batteryvolt);
-      - can_id: 0x3E5 # HeaterTemp https://tx-board.de/threads/frame-fuer-standheizung.36723/#post-746354
-        then:
-          - lambda: |-
-              std::string b(x.begin(), x.end());
-              float heatertemp = int(x[6]) * 0.75 - 48; 
-              ESP_LOGD("Heatertemperature canid 0x571", "%f", heatertemp);
+             id(heizungan).turn_on();
+      - if:
+         condition:
+           lambda: 'return ((id(sms_sender).state == "++491234567890" || id(sms_sender).state == "++491234567890") && (id(sms_message).state == "Status" || id(sms_message).state == "status") );'
+         then:
+          - sim800l.send_sms:
+             recipient: !lambda 'return id(sms_sender).state;'
+             message: !lambda 'return id(messagetosend).state;'
+  on_incoming_call:
+  - lambda: |-
+      id(caller_id_text_sensor).publish_state(caller_id); 
+      if (id(caller_id_text_sensor).state == "+491234567890" || id(caller_id_text_sensor).state == "+491234567890"){
+        id(heizungan).turn_on();
+      }
+  - delay: 2s
+  - sim800l.disconnect  
 
 
-# Display Part
-font:
-  # gfonts://family[@weight]
-  - file: "gfonts://Roboto"
-    id: roboto
-    size: 20
+switch:
+  - platform: gpio # necessary
+    name: "SIM800_PWKEY"
+    pin: 4
+    restore_mode: ALWAYS_OFF
+  - platform: gpio # necessary
+    name: "SIM800_RST"
+    pin: 5
+    restore_mode: ALWAYS_ON
+  - platform: gpio # necessary
+    name: "SIM800_POWER"
+    pin: 23
+    restore_mode: ALWAYS_ON
+  - platform: gpio # switch aux heater on
+    id: heizungan
+    pin: 
+      number: 13
+    name: "Heizung Ein-Schalter"
+    on_turn_on:
+      - delay: 1000ms
+      - switch.turn_off: heizungan
+  - platform: restart
+    name: "Neustart T5 ESP"
+    
+      
+gps: # GPS part
+  uart_id: uart_gps
+  latitude:
+    name: "Latitude"
+    id: latitude
+  longitude:
+    name: "Longitude"
+    id: longitude
+  altitude:
+    name: "Altitude"
+  update_interval: 10s
 
+time: # get time from gps, wifi is not availible at all times
+  - platform: gps
+
+
+font: # necessary font to display text
+  - file: "Comfortaa-Regular.ttf"
+    id: fontbig
+    size: 50
+  - file: "Comfortaa-Regular.ttf"
+    id: fontnormal
+    size: 25
+  - file: "Comfortaa-Regular.ttf"
+    id: fontmini
+    size: 18
+
+spi: # necessary setup for display
+  clk_pin: 18
+  mosi_pin: 19
+  
 display:
   - platform: waveshare_epaper
-    cs_pin: 5
-    dc_pin: 17
-    busy_pin: 4
-    reset_pin: 16
-    model: 2.13in
-    full_update_every: 30
+    id: einkdisplay
+    cs_pin: 32
+    dc_pin: 33
+    reset_pin: 25
+    model: 1.54inv2
+    rotation: 90°
+#    update_interval: 2s
+#    full_update_every: 100
     lambda: |-
-      it.print(0, 0, id(roboto), "Hello World!");
-      it.printf(0, 0, id(roboto), "Time: %d : %d", id(timehours), id(timeminutes));  
-      it.printf(0, 0, id(roboto), "Time: %d ", id(timevalue));        
-      it.printf(0, 0, id(roboto), "Temperature outside: %.1f °C", id(tempoutside));
-      it.printf(0, 0, id(roboto), "Temperature inside:  %.1f °C", id(tempoutside));
-      
+      ESP_LOGD("display", "update");
+      it.printf(5, 40, id(fontnormal), "In:");
+      it.printf(175, 10, id(fontbig), TextAlign::TOP_RIGHT, "%.0f", id(tempinnen).state);
+      it.printf(175, 47, id(fontmini), "°C");
+      it.printf(175, 67, id(fontmini), "%.0f%", id(feuchteinnen).state);
+      it.printf(5, 130, id(fontnormal), "Out:");
+      it.printf(175, 100, id(fontbig), TextAlign::TOP_RIGHT, "%.0f", id(tempaussen).state);
+      it.printf(175, 137, id(fontmini), "°C");
+      it.printf(175, 157, id(fontmini), "%.0f%", id(feuchteaussen).state);
+      it.printf(50, 180, id(fontmini), "Batterie: %.2fV", id(batteriespannung).state);
