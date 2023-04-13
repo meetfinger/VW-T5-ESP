@@ -8,7 +8,7 @@ Hardware-Features:
 * T-Call Board with ESP32 and SIM800l Module on board
 *	NEO-M8N GPS Module over UART
 *	MP1584EN Buck Converter 
-*  2.13in Eink Display
+*  1.54in Eink Display
 *	BME280, DHT22, wires, ...
 
 Software Features:
