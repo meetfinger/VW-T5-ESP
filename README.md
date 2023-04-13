@@ -2,7 +2,7 @@
 <h2> smart up the VW T5.1 MJ 2009</h2>
 <h2> Disclaimer: use at your own risk</h2>
 
-To read the current outside temperature from my car i tapped the CAN Bus. While there, i read some other stuff and added GPS. I used ESPHome because i currently use it a lot. 
+To read the current inside and outside temperature from my car i installed a ESPHome node. While there, i also included a GPS and SIM Module to act as a tracker. I used ESPHome because i currently use it a lot. 
 
 Hardware-Features:
 * T-Call Board with ESP32 and SIM800l Module on board
