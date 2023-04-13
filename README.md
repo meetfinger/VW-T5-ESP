@@ -10,6 +10,8 @@ Hardware-Features:
 *	MP1584EN Buck Converter 
 *  1.54in Eink Display
 *	BME280, DHT22, wires, ...
+* custom PCB to connect all modules via pin headers or plug connections
+* custom enclosure to print
 
 Software Features:
 * Get GPS position and send position on demand via SMS
