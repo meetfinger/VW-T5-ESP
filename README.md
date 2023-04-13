@@ -17,6 +17,7 @@ Software Features:
 * Get GPS position and send position on demand via SMS
 * Read inside temperature from DHT22 and outside temperature from BME280
 * Connect to Homeassistant if car is parked near home-WiFi
+* power consumption over time with 5min deepsleep and 30sec waketime 17mA
 
 Install:
 1. Install Python, ESPHome, ... https://esphome.io/ 
