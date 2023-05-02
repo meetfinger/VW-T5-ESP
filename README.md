@@ -25,3 +25,5 @@ Install:
 3. Edit as needed
 3. Open terminal at .yaml position
 4. Compile and upload: ```esphome run VWT5ESP.yaml```
+
+![finished product](https://github.com/meetfinger/VW-T5-ESP/blob/main/installation.JPG?raw=true)
