@@ -6,17 +6,17 @@ To read the current inside and outside temperature from my car i installed a ESP
 
 Hardware-Features:
 * T-Call Board with ESP32 and SIM800l Module on board
-*	NEO-M8N GPS Module over UART
+*	NEO-M6N GPS Module over UART
 *	MP1584EN Buck Converter 
-*  1.54in Eink Display
+* 1.54in Eink Display
 *	BME280, DHT22, wires, ...
 * custom PCB to connect all modules via pin headers or plug connections
 * custom enclosure to print
 
 Software Features:
 * Get GPS position and send position on demand via SMS
+* GPS is turned on only to sync time and get the position
 * Read inside temperature from DHT22 and outside temperature from BME280
-* Connect to Homeassistant if car is parked near home-WiFi
 * power consumption over time with 5min deepsleep and 30sec waketime 17mA
 
 Install:
