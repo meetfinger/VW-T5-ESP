@@ -4,65 +4,27 @@ esphome:
 esp32:
   board: esp32dev
 
-logger:
-  baud_rate: 0
-  level: VERBOSE
-  logs:
-    gps: none
-    sim800l: none
-    wifi: none
-
-wifi:
-  ssid: !secret ssid
-  password: !secret 
-  manual_ip:
-    static_ip: 192.168.xxx.xxx
-    gateway: 192.168.xxx.xxx
-    subnet: 255.255.255.0
-  power_save_mode: HIGH
-  fast_connect: on
-  output_power: "8.5dB"
-
-ota:
-captive_portal:
-api:
-  services:
-  - service: send_sms
-    variables:
-      recipient: string
-      message: string
-    then:
-    - sim800l.send_sms:
-        recipient: !lambda 'return recipient;'
-        message: !lambda 'return message;'
-
 deep_sleep: #powersaving mechanism
+  id: deepsleep
   run_duration: 30s
-  sleep_duration: 5min
-
-
+  sleep_duration: 3min
+  
 text_sensor: #necessary text sensors
 - platform: template
   id: sms_sender
-  name: "Sms Sender"
 - platform: template
   id: sms_message
-  name: "Sms Message"
 - platform: template
   id: caller_id_text_sensor
-  name: "Caller ID"
 - platform: template
   id: ussd_message
-  name: "Ussd Code"
 - platform: template
   id: messagetosend
-  name: "SMS Message zum verschicken"
       
 
 i2c: #necessary for BME280
   sda: 21
   scl: 22
-#  scan: true
 
 sensor:
   - platform: sim800l # Signal strenght of GPRS
@@ -71,7 +33,6 @@ sensor:
   - platform: adc # battery voltage 
     pin: 34
     id: batteriespannung
-    name: "Batteriespannung"
     update_interval: 60s
     unit_of_measurement: "V"
     attenuation: auto
@@ -83,36 +44,22 @@ sensor:
     update_interval: 60s
     temperature:
       id: tempaussen
-      name: "T5 Aussen Temperatur"
       oversampling: 1x
-      on_value:
-        then:
-           - component.update: einkdisplay 
     humidity:
       id: feuchteaussen
-      name: "T5 Aussen Feuchtigkeit"
       oversampling: 1x
   - platform: dht #inside temp
     pin: 14
     temperature:
-      name: "T5 Innenraum Temperatur"
       id: tempinnen
-      on_value:
-        then:
-           - component.update: einkdisplay 
     humidity:
-      name: "T5 Innenraum Feuchtigkeit"
       id: feuchteinnen
     update_interval: 60s
     model: DHT22_TYPE2  
 
 binary_sensor:
-  - platform: sim800l # Is the SIM active?
-    registered:
-      name: "Sim800L Registered"
   - platform: gpio # is the aux heater on?
     id: heizungstatus
-    name: "Standheizung"
     pin:
       number: 39
 
@@ -123,11 +70,15 @@ uart: # necessary UART setup for SIM and GPS
     tx_pin: 27
     rx_pin: 26
   - id: uart_gps
-    rx_pin: 3
+    rx_pin: 35
     baud_rate: 9600
-    
 
-sim800l: # receive and send status sms, receive call
+# SIM800l Part:    
+# receive and send status sms, 
+# receive sms or call to turn on heater, 
+# receive sms to let gps stay powered to sync time
+
+sim800l: 
   uart_id: uart_sim
   on_sms_received:
     then:
@@ -138,21 +89,38 @@ sim800l: # receive and send status sms, receive call
          id(messagetosend).publish_state( "GPS: " + to_string(id(latitude).state) + " " + to_string(id(longitude).state) + " " + to_string(id(batteriespannung).state) + "V - Heizung: " + to_string(id(heizungstatus).state) + " - Innen: " + to_string(id(tempinnen).state) + " - Aussen: " + to_string(id(tempaussen).state));
       - if:
          condition:
-           lambda: 'return ((id(sms_sender).state == "+491234567890" || id(sms_sender).state == "+491234567890") && (id(sms_message).state == "Heizung" || id(sms_message).state == "heizung") );'
+           lambda: 'return ((id(sms_sender).state == "+49123456789" || id(sms_sender).state == "+49123456789") && (id(sms_message).state == "Heizung" || id(sms_message).state == "heizung") );'
          then:
           - lambda: |-
              id(heizungan).turn_on();
       - if:
          condition:
-           lambda: 'return ((id(sms_sender).state == "++491234567890" || id(sms_sender).state == "++491234567890") && (id(sms_message).state == "Status" || id(sms_message).state == "status") );'
+           lambda: 'return ((id(sms_sender).state == "+49123456789" || id(sms_sender).state == "+49123456789") && (id(sms_message).state == "Status" || id(sms_message).state == "status") );'
          then:
+          - deep_sleep.prevent: deepsleep
+          - switch.turn_on: gpspwr
+          - delay: 1min
+          - lambda: |-
+             id(messagetosend).publish_state(" ");
+             id(messagetosend).publish_state( "GPS: " + to_string(id(latitude).state) + " " + to_string(id(longitude).state) + " " + to_string(id(batteriespannung).state) + "V - Heizung: " + to_string(id(heizungstatus).state) + " - Innen: " + to_string(id(tempinnen).state) + " - Aussen: " + to_string(id(tempaussen).state));
           - sim800l.send_sms:
              recipient: !lambda 'return id(sms_sender).state;'
              message: !lambda 'return id(messagetosend).state;'
+          - delay: 10s   
+          - deep_sleep.allow: 
+      - if:
+         condition:
+           lambda: 'return ((id(sms_sender).state == "+49123456789" || id(sms_sender).state == "+49123456789") && (id(sms_message).state == "Zeit" || id(sms_message).state == "zeit") );'
+         then:
+          - deep_sleep.prevent: deepsleep
+          - switch.turn_on: gpspwr
+          - delay: 1min
+          - switch.turn_off: gpspwr
+          - deep_sleep.allow: deepsleep
   on_incoming_call:
   - lambda: |-
       id(caller_id_text_sensor).publish_state(caller_id); 
-      if (id(caller_id_text_sensor).state == "+491234567890" || id(caller_id_text_sensor).state == "+491234567890"){
+      if (id(caller_id_text_sensor).state == "+49123456789" || id(caller_id_text_sensor).state == "+49123456789"){
         id(heizungan).turn_on();
       }
   - delay: 2s
@@ -160,50 +128,57 @@ sim800l: # receive and send status sms, receive call
 
 
 switch:
-  - platform: gpio # necessary
-    name: "SIM800_PWKEY"
+  - platform: gpio # necessary sim800l switch
+    id: simpwkey
     pin: 4
     restore_mode: ALWAYS_OFF
-  - platform: gpio # necessary
-    name: "SIM800_RST"
+  - platform: gpio # necessary sim800l switch
+    id: simrst
     pin: 5
     restore_mode: ALWAYS_ON
-  - platform: gpio # necessary
-    name: "SIM800_POWER"
+  - platform: gpio # necessary sim800l switch
+    id: simpwr
     pin: 23
     restore_mode: ALWAYS_ON
+  - platform: gpio # necessary gps power switch
+    id: gpspwr
+    pin: 3
+    restore_mode: ALWAYS_OFF
   - platform: gpio # switch aux heater on
     id: heizungan
     pin: 
       number: 13
-    name: "Heizung Ein-Schalter"
     on_turn_on:
-      - delay: 1000ms
+      - delay: 250ms
       - switch.turn_off: heizungan
-  - platform: restart
-    name: "Neustart T5 ESP"
     
       
 gps: # GPS part
   uart_id: uart_gps
   latitude:
-    name: "Latitude"
     id: latitude
   longitude:
-    name: "Longitude"
     id: longitude
-  altitude:
-    name: "Altitude"
-  update_interval: 10s
 
-time: # get time from gps, wifi is not availible at all times
+time: # get time from gps, wifi is not availible
   - platform: gps
+    id: gpstime
+    on_time: # let gps stay on to sync time on initial boot (when time is set to 1:00) and every night at 1:00
+      - seconds: 0
+        minutes: 0
+        hours: 1
+        then: 
+          - deep_sleep.prevent: deepsleep
+          - switch.turn_on: gpspwr
+          - delay: 1min
+          - switch.turn_off: gpspwr
+          - deep_sleep.allow: deepsleep          
 
 
 font: # necessary font to display text
   - file: "Comfortaa-Regular.ttf"
     id: fontbig
-    size: 50
+    size: 60
   - file: "Comfortaa-Regular.ttf"
     id: fontnormal
     size: 25
@@ -223,16 +198,17 @@ display:
     reset_pin: 25
     model: 1.54inv2
     rotation: 90°
-#    update_interval: 2s
-#    full_update_every: 100
+    update_interval: 200ms
+    full_update_every: 60
+    reset_duration: 2ms
     lambda: |-
-      ESP_LOGD("display", "update");
-      it.printf(5, 40, id(fontnormal), "In:");
-      it.printf(175, 10, id(fontbig), TextAlign::TOP_RIGHT, "%.0f", id(tempinnen).state);
-      it.printf(175, 47, id(fontmini), "°C");
-      it.printf(175, 67, id(fontmini), "%.0f%", id(feuchteinnen).state);
-      it.printf(5, 130, id(fontnormal), "Out:");
-      it.printf(175, 100, id(fontbig), TextAlign::TOP_RIGHT, "%.0f", id(tempaussen).state);
-      it.printf(175, 137, id(fontmini), "°C");
-      it.printf(175, 157, id(fontmini), "%.0f%", id(feuchteaussen).state);
-      it.printf(50, 180, id(fontmini), "Batterie: %.2fV", id(batteriespannung).state);
+      it.printf(5, 30, id(fontnormal), "In:");
+      it.printf(175, 10, id(fontbig), TextAlign::TOP_RIGHT, "%.1f", id(tempinnen).state);
+      it.printf(175, 52, id(fontmini), "°C");
+      it.printf(145, 65, id(fontnormal), "%.0f%%", id(feuchteinnen).state);
+      it.printf(5, 120, id(fontnormal), "Out:");
+      it.printf(175, 90, id(fontbig), TextAlign::TOP_RIGHT, "%.1f", id(tempaussen).state);
+      it.printf(175, 132, id(fontmini), "°C");
+      it.printf(145, 145, id(fontnormal), "%.0f%%", id(feuchteaussen).state);
+      it.strftime(30, 182, id(fontmini), "%H:%M", id(gpstime).now());
+      it.printf(200, 180, id(fontmini), TextAlign::TOP_RIGHT, "%.2fV", id(batteriespannung).state);
