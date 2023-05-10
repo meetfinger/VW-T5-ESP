@@ -163,16 +163,15 @@ gps: # GPS part
 time: # get time from gps, wifi is not availible
   - platform: gps
     id: gpstime
-    on_time: # let gps stay on to sync time on initial boot (when time is set to 1:00) and every night at 1:00
-      - seconds: 0
-        minutes: 0
-        hours: 1
+    on_time: # let gps stay on to sync time on initial boot (time is set to 1:00) and every night at 1:00
+      - seconds: 10
+        minutes: 0, 1, 2
         then: 
           - deep_sleep.prevent: deepsleep
           - switch.turn_on: gpspwr
-          - delay: 1min
+          - delay: 45s
           - switch.turn_off: gpspwr
-          - deep_sleep.allow: deepsleep          
+          - deep_sleep.allow: deepsleep           
 
 
 font: # necessary font to display text
